@@ -1770,6 +1770,22 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
                         <input type="text" id="dhtBootstrapNodes" placeholder="QBT_TR(Resets to default if empty)QBT_TR[CONTEXT=OptionsDialog]" style="width: 15em;">
                     </td>
                 </tr>
+                <tr>
+                    <td>
+                        <label for="userAgent">QBT_TR(User agent:)QBT_TR[CONTEXT=OptionsDialog]&nbsp;<a href="https://www.libtorrent.org/reference-Settings.html#user_agent" target="_blank">(?)</a></label>
+                    </td>
+                    <td>
+                        <input type="text" id="userAgent" placeholder="QBT_TR(Resets to default if empty)QBT_TR[CONTEXT=OptionsDialog]" style="width: 15em;">
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        <label for="peerIdPrefix">QBT_TR(Peer ID:)QBT_TR[CONTEXT=OptionsDialog]&nbsp;<a href="https://www.libtorrent.org/reference-Settings.html#peer_fingerprint" target="_blank">(?)</a></label>
+                    </td>
+                    <td>
+                        <input type="text" id="peerIdPrefix" placeholder="QBT_TR(Leave empty to use default peer ID. Can be up to 20 bytes. If longer, it will be truncated. Example: '-qB4500-'   or full 20-byte peer ID)QBT_TR[CONTEXT=OptionsDialog]" style="width: 15em;">
+                    </td>
+                </tr>
                 <tr id="rowI2pInboundQuantity">
                     <td>
                         <label for="i2pInboundQuantity">QBT_TR(I2P inbound quantity:)QBT_TR[CONTEXT=OptionsDialog]&nbsp;<a href="https://www.libtorrent.org/reference-Settings.html#i2p_inbound_quantity" target="_blank">(?)</a></label>
