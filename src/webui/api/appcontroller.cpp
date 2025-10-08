@@ -509,7 +509,7 @@ void AppController::preferencesAction()
     // User agent
     data[u"user_agent"_s] = session->getUserAgent();
     // Peer ID
-    data[u"peer_fingerprint"_s] = session->getPeerIdPrefix();
+    data[u"peer_fingerprint"_s] = session->getPeerFingerprint();
 
     setResult(data);
 }
@@ -1206,7 +1206,7 @@ void AppController::setPreferencesAction()
         session->setUserAgent(it.value().toString());
     // Peer ID
     if (hasKey(u"peer_fingerprint"_s))
-        session->setPeerIdPrefix(it.value().toString());
+        session->setPeerFingerprint(it.value().toString());
 
     // Save preferences
     pref->apply();
