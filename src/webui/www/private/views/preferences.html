@@ -2759,6 +2759,8 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
                     document.getElementById("peerTurnoverInterval").value = pref.peer_turnover_interval;
                     document.getElementById("requestQueueSize").value = pref.request_queue_size;
                     document.getElementById("dhtBootstrapNodes").value = pref.dht_bootstrap_nodes;
+                    document.getElementById("userAgent").value = pref.user_agent;
+                    document.getElementById("peerFingerprint").value = pref.peer_fingerprint;
                     document.getElementById("i2pInboundQuantity").value = pref.i2p_inbound_quantity;
                     document.getElementById("i2pOutboundQuantity").value = pref.i2p_outbound_quantity;
                     document.getElementById("i2pInboundLength").value = pref.i2p_inbound_length;
@@ -3286,6 +3288,8 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
 
             settings["request_queue_size"] = Number(document.getElementById("requestQueueSize").value);
             settings["dht_bootstrap_nodes"] = document.getElementById("dhtBootstrapNodes").value;
+            settings["user_agent"] = document.getElementById("userAgent").value;
+            settings["peer_fingerprint"] = document.getElementById("peerFingerprint").value;
             settings["i2p_inbound_quantity"] = Number(document.getElementById("i2pInboundQuantity").value);
             settings["i2p_outbound_quantity"] = Number(document.getElementById("i2pOutboundQuantity").value);
             settings["i2p_inbound_length"] = Number(document.getElementById("i2pInboundLength").value);
