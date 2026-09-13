@@ -36,6 +36,8 @@
 #include <QLabel>
 #include <QNetworkInterface>
 
+#include <libtorrent/version.hpp>
+
 #include "base/bittorrent/session.h"
 #include "base/global.h"
 #include "base/preferences.h"
@@ -143,17 +145,21 @@ namespace
         SEND_BUF_WATERMARK_FACTOR,
         // networking & ports
         CONNECTION_SPEED,
+        SEEDING_OUTGOING_CONNECTIONS,
         SOCKET_SEND_BUFFER_SIZE,
         SOCKET_RECEIVE_BUFFER_SIZE,
         SOCKET_BACKLOG_SIZE,
         OUTGOING_PORT_MIN,
         OUTGOING_PORT_MAX,
         UPNP_LEASE_DURATION,
-        PEER_TOS,
+        PEER_DSCP,
         UTP_MIX_MODE,
         HOSTNAME_CACHE_TTL,
         IDN_SUPPORT,
         MULTI_CONNECTIONS_PER_IP,
+#if LIBTORRENT_VERSION_NUM >= 20013
+        MULTI_CONNECTIONS_PER_PEER_ID,
+#endif
         VALIDATE_HTTPS_TRACKER_CERTIFICATE,
         SSRF_MITIGATION,
         BLOCK_PEERS_ON_PRIVILEGED_PORTS,
@@ -171,7 +177,11 @@ namespace
         PEER_TURNOVER_CUTOFF,
         PEER_TURNOVER_INTERVAL,
         REQUEST_QUEUE_SIZE,
+        MAX_OUTSTANDING_BLOCK_REQUESTS,
         DHT_BOOTSTRAP_NODES,
+#if LIBTORRENT_VERSION_NUM >= 20100
+        WEBTORRENT_STUN_SERVER,
+#endif
 #if defined(QBT_USES_LIBTORRENT2) && TORRENT_USE_I2P
         I2P_INBOUND_QUANTITY,
         I2P_OUTBOUND_QUANTITY,
@@ -258,6 +268,8 @@ void AdvancedSettings::saveAdvancedSettings() const
     session->setSendBufferWatermarkFactor(m_spinBoxSendBufferWatermarkFactor.value());
     // Outgoing connections per second
     session->setConnectionSpeed(m_spinBoxConnectionSpeed.value());
+    // Allow outgoing connections when seeding
+    session->setSeedingOutgoingConnections(m_checkBoxSeedingOutgoingConnections.isChecked());
     // Socket send buffer size
     session->setSocketSendBufferSize(m_spinBoxSocketSendBufferSize.value() * 1024);
     // Socket receive buffer size
@@ -276,7 +288,7 @@ void AdvancedSettings::saveAdvancedSettings() const
     // UPnP lease duration
     session->setUPnPLeaseDuration(m_spinBoxUPnPLeaseDuration.value());
     // Type of service
-    session->setPeerToS(m_spinBoxPeerToS.value());
+    session->setPeerDSCP(m_spinBoxPeerDSCP.value());
     // uTP-TCP mixed mode
     session->setUtpMixedMode(m_comboBoxUtpMixedMode.currentData().value<BitTorrent::MixedModeAlgorithm>());
     // Hostname resolver cache TTL
@@ -285,6 +297,10 @@ void AdvancedSettings::saveAdvancedSettings() const
     session->setIDNSupportEnabled(m_checkBoxIDNSupport.isChecked());
     // multiple connections per IP
     session->setMultiConnectionsPerIpEnabled(m_checkBoxMultiConnectionsPerIp.isChecked());
+#if LIBTORRENT_VERSION_NUM >= 20013
+    // multiple connections per Peer ID
+    session->setMultiConnectionsPerPeerIDEnabled(m_checkBoxMultiConnectionsPerPeerID.isChecked());
+#endif
     // Validate HTTPS tracker certificate
     session->setValidateHTTPSTrackerCertificate(m_checkBoxValidateHTTPSTrackerCertificate.isChecked());
     // SSRF mitigation
@@ -347,7 +363,7 @@ void AdvancedSettings::saveAdvancedSettings() const
     // Ignore SSL errors
     pref->setIgnoreSSLErrors(m_checkBoxIgnoreSSLErrors.isChecked());
     // Python executable path
-    pref->setPythonExecutablePath(Path(m_pythonExecutablePath.text().trimmed()));
+    pref->setPythonExecutablePath(m_pythonExecutablePath.selectedPath());
     // Start session paused
     session->setStartPaused(m_checkBoxStartSessionPaused.isChecked());
     // Session shutdown timeout
@@ -370,8 +386,14 @@ void AdvancedSettings::saveAdvancedSettings() const
     session->setPeerTurnoverInterval(m_spinBoxPeerTurnoverInterval.value());
     // Maximum outstanding requests to a single peer
     session->setRequestQueueSize(m_spinBoxRequestQueueSize.value());
+    // Maximum outstanding requests from a single peer
+    session->setMaxOutstandingBlockRequests(m_spinBoxMaxOutstandingBlockRequests.value());
     // DHT bootstrap nodes
     session->setDHTBootstrapNodes(m_lineEditDHTBootstrapNodes.text());
+#if LIBTORRENT_VERSION_NUM >= 20100
+    // STUN server for WebTorrent NAT traversal
+    session->setWebTorrentSTUNServer(m_lineEditWebTorrentSTUNServer.text());
+#endif
 #if defined(QBT_USES_LIBTORRENT2) && TORRENT_USE_I2P
     // I2P session options
     session->setI2PInboundQuantity(m_spinBoxI2PInboundQuantity.value());
@@ -599,6 +621,9 @@ void AdvancedSettings::loadAdvancedSettings()
     m_comboBoxDiskIOType.addItem(tr("Memory mapped files"), QVariant::fromValue(BitTorrent::DiskIOType::MMap));
     m_comboBoxDiskIOType.addItem(tr("POSIX-compliant"), QVariant::fromValue(BitTorrent::DiskIOType::Posix));
     m_comboBoxDiskIOType.addItem(tr("Simple pread/pwrite"), QVariant::fromValue(BitTorrent::DiskIOType::SimplePreadPwrite));
+#if LIBTORRENT_VERSION_NUM >= 20100
+    m_comboBoxDiskIOType.addItem(tr("Pread/pwrite"), QVariant::fromValue(BitTorrent::DiskIOType::PreadPwrite));
+#endif
     m_comboBoxDiskIOType.setCurrentIndex(m_comboBoxDiskIOType.findData(QVariant::fromValue(session->diskIOType())));
     addRow(DISK_IO_TYPE, tr("Disk IO type (requires restart)") + u' ' + makeLink(u"https://www.libtorrent.org/single-page-ref.html#default-disk-io-constructor", u"(?)")
            , &m_comboBoxDiskIOType);
@@ -656,6 +681,10 @@ void AdvancedSettings::loadAdvancedSettings()
     m_spinBoxConnectionSpeed.setValue(session->connectionSpeed());
     addRow(CONNECTION_SPEED, (tr("Outgoing connections per second") + u' ' + makeLink(u"https://www.libtorrent.org/reference-Settings.html#connection_speed", u"(?)"))
             , &m_spinBoxConnectionSpeed);
+    // Allow outgoing connections when seeding
+    m_checkBoxSeedingOutgoingConnections.setChecked(session->isSeedingOutgoingConnectionsEnabled());
+    addRow(SEEDING_OUTGOING_CONNECTIONS, (tr("Allow outgoing connections when seeding") + u' ' + makeLink(u"https://www.libtorrent.org/reference-Settings.html#seeding_outgoing_connections", u"(?)"))
+            , &m_checkBoxSeedingOutgoingConnections);
     // Socket send buffer size
     m_spinBoxSocketSendBufferSize.setMinimum(0);
     m_spinBoxSocketSendBufferSize.setMaximum(std::numeric_limits<int>::max() / 1024);
@@ -723,11 +752,11 @@ void AdvancedSettings::loadAdvancedSettings()
     addRow(UPNP_LEASE_DURATION, (tr("UPnP lease duration [0: permanent lease]") + u' ' + makeLink(u"https://www.libtorrent.org/reference-Settings.html#upnp_lease_duration", u"(?)"))
         , &m_spinBoxUPnPLeaseDuration);
     // Type of service
-    m_spinBoxPeerToS.setMinimum(0);
-    m_spinBoxPeerToS.setMaximum(255);
-    m_spinBoxPeerToS.setValue(session->peerToS());
-    addRow(PEER_TOS, (tr("Type of service (ToS) for connections to peers") + u' ' + makeLink(u"https://www.libtorrent.org/reference-Settings.html#peer_tos", u"(?)"))
-        , &m_spinBoxPeerToS);
+    m_spinBoxPeerDSCP.setMinimum(0);
+    m_spinBoxPeerDSCP.setMaximum(255);
+    m_spinBoxPeerDSCP.setValue(session->peerDSCP());
+    addRow(PEER_DSCP, (tr("Differentiated Services Code Point (DSCP) for connections to peers") + u' ' + makeLink(u"https://www.libtorrent.org/reference-Settings.html#peer_dscp", u"(?)"))
+        , &m_spinBoxPeerDSCP);
     // uTP-TCP mixed mode
     m_comboBoxUtpMixedMode.addItem(tr("Prefer TCP"), QVariant::fromValue(BitTorrent::MixedModeAlgorithm::TCP));
     m_comboBoxUtpMixedMode.addItem(tr("Peer proportional (throttles TCP)"), QVariant::fromValue(BitTorrent::MixedModeAlgorithm::Proportional));
@@ -753,6 +782,13 @@ void AdvancedSettings::loadAdvancedSettings()
     addRow(MULTI_CONNECTIONS_PER_IP, (tr("Allow multiple connections from the same IP address")
             + u' ' + makeLink(u"https://www.libtorrent.org/reference-Settings.html#allow_multiple_connections_per_ip", u"(?)"))
             , &m_checkBoxMultiConnectionsPerIp);
+#if LIBTORRENT_VERSION_NUM >= 20013
+    // multiple connections per Peer ID
+    m_checkBoxMultiConnectionsPerPeerID.setChecked(session->multiConnectionsPerPeerIDEnabled());
+    addRow(MULTI_CONNECTIONS_PER_PEER_ID, (tr("Allow multiple connections from the same Peer ID")
+            + u' ' + makeLink(u"https://www.libtorrent.org/reference-Settings.html#allow_multiple_connections_per_pid", u"(?)"))
+            , &m_checkBoxMultiConnectionsPerPeerID);
+#endif
     // Validate HTTPS tracker certificate
     m_checkBoxValidateHTTPSTrackerCertificate.setChecked(session->validateHTTPSTrackerCertificate());
     addRow(VALIDATE_HTTPS_TRACKER_CERTIFICATE, (tr("Validate HTTPS tracker certificates")
@@ -771,7 +807,7 @@ void AdvancedSettings::loadAdvancedSettings()
     addRow(RECHECK_COMPLETED, tr("Recheck torrents on completion"), &m_checkBoxRecheckCompleted);
     // Customize application instance name
     m_lineEditAppInstanceName.setText(app()->instanceName());
-    m_lineEditAppInstanceName.setToolTip(tr("It appends the text to the window title to help distinguish qBittorent instances"));
+    m_lineEditAppInstanceName.setToolTip(tr("It appends the text to the window title to help distinguish qBittorrent instances"));
     addRow(APP_INSTANCE_NAME, tr("Customize application instance name"), &m_lineEditAppInstanceName);
     // Refresh interval
     m_spinBoxListRefresh.setMinimum(30);
@@ -897,8 +933,10 @@ void AdvancedSettings::loadAdvancedSettings()
     m_checkBoxIgnoreSSLErrors.setToolTip(tr("Affects certificate validation and non-torrent protocol activities (e.g. RSS feeds, program updates, torrent files, geoip db, etc)"));
     addRow(IGNORE_SSL_ERRORS, tr("Ignore SSL errors"), &m_checkBoxIgnoreSSLErrors);
     // Python executable path
-    m_pythonExecutablePath.setPlaceholderText(tr("(Auto detect if empty)"));
-    m_pythonExecutablePath.setText(pref->getPythonExecutablePath().toString());
+    m_pythonExecutablePath.setMode(FileSystemPathEdit::Mode::FileOpen);
+    m_pythonExecutablePath.setDialogCaption(tr("Select Python Executable"));
+    m_pythonExecutablePath.setPlaceholder(tr("(Auto detect if empty)"));
+    m_pythonExecutablePath.setSelectedPath(pref->getPythonExecutablePath());
     addRow(PYTHON_EXECUTABLE_PATH, tr("Python executable path (may require restart)"), &m_pythonExecutablePath);
     // Start session paused
     m_checkBoxStartSessionPaused.setChecked(session->isStartPaused());
@@ -973,11 +1011,23 @@ void AdvancedSettings::loadAdvancedSettings()
     m_spinBoxRequestQueueSize.setValue(session->requestQueueSize());
     addRow(REQUEST_QUEUE_SIZE, (tr("Maximum outstanding requests to a single peer") + u' ' + makeLink(u"https://www.libtorrent.org/reference-Settings.html#max_out_request_queue", u"(?)"))
             , &m_spinBoxRequestQueueSize);
+    // Maximum outstanding requests from a single peer
+    m_spinBoxMaxOutstandingBlockRequests.setMinimum(1);
+    m_spinBoxMaxOutstandingBlockRequests.setMaximum(std::numeric_limits<int>::max());
+    m_spinBoxMaxOutstandingBlockRequests.setValue(session->maxOutstandingBlockRequests());
+    addRow(MAX_OUTSTANDING_BLOCK_REQUESTS, (tr("Maximum outstanding block requests from a peer") + u' ' + makeLink(u"https://www.libtorrent.org/reference-Settings.html#max_allowed_in_request_queue", u"(?)"))
+            , &m_spinBoxMaxOutstandingBlockRequests);
     // DHT bootstrap nodes
     m_lineEditDHTBootstrapNodes.setPlaceholderText(tr("Resets to default if empty"));
     m_lineEditDHTBootstrapNodes.setText(session->getDHTBootstrapNodes());
     addRow(DHT_BOOTSTRAP_NODES, (tr("DHT bootstrap nodes") + u' ' + makeLink(u"https://www.libtorrent.org/reference-Settings.html#dht_bootstrap_nodes", u"(?)"))
         , &m_lineEditDHTBootstrapNodes);
+#if LIBTORRENT_VERSION_NUM >= 20100
+    // STUN server for WebTorrent NAT traversal
+    m_lineEditWebTorrentSTUNServer.setText(session->getWebTorrentSTUNServer());
+    addRow(WEBTORRENT_STUN_SERVER, (tr("STUN server for WebTorrent NAT traversal") + u' ' + makeLink(u"https://www.libtorrent.org/reference-Settings.html#webtorrent_stun_server", u"(?)"))
+        , &m_lineEditWebTorrentSTUNServer);
+#endif
 #if defined(QBT_USES_LIBTORRENT2) && TORRENT_USE_I2P
     // I2P session options
     m_spinBoxI2PInboundQuantity.setMinimum(1);
@@ -1013,7 +1063,9 @@ void AdvancedSettings::addRow(const int row, const QString &text, T *widget)
     setCellWidget(row, PROPERTY, label);
     setCellWidget(row, VALUE, widget);
 
-    if constexpr (std::is_same_v<T, QCheckBox>)
+    if constexpr (std::is_same_v<T, FileSystemPathLineEdit>)
+        connect(widget, &FileSystemPathEdit::selectedPathChanged, this, &AdvancedSettings::settingsChanged);
+    else if constexpr (std::is_same_v<T, QCheckBox>)
     {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
         connect(widget, &QCheckBox::checkStateChanged, this, &AdvancedSettings::settingsChanged);
@@ -1021,10 +1073,10 @@ void AdvancedSettings::addRow(const int row, const QString &text, T *widget)
         connect(widget, &QCheckBox::stateChanged, this, &AdvancedSettings::settingsChanged);
 #endif
     }
-    else if constexpr (std::is_same_v<T, QSpinBox>)
-        connect(widget, qOverload<int>(&QSpinBox::valueChanged), this, &AdvancedSettings::settingsChanged);
     else if constexpr (std::is_same_v<T, QComboBox>)
         connect(widget, qOverload<int>(&QComboBox::currentIndexChanged), this, &AdvancedSettings::settingsChanged);
     else if constexpr (std::is_same_v<T, QLineEdit>)
         connect(widget, &QLineEdit::textChanged, this, &AdvancedSettings::settingsChanged);
+    else if constexpr (std::is_same_v<T, QSpinBox>)
+        connect(widget, qOverload<int>(&QSpinBox::valueChanged), this, &AdvancedSettings::settingsChanged);
 }

@@ -1,4 +1,4 @@
-# VERSION: 1.55
+# VERSION: 1.57
 
 # Author:
 #  Christophe DUMEZ (chris@qbittorrent.org)
@@ -46,7 +46,9 @@ import socks
 
 
 def _getBrowserUserAgent() -> str:
-    """ Disguise as browser to circumvent website blocking """
+    """
+    Disguise as browser to circumvent website blocking
+    """
 
     # Firefox release calendar
     # https://whattrainisitnow.com/calendar/
@@ -77,15 +79,6 @@ def enable_socks_proxy(enable: bool) -> None:
             elif (parts.scheme == "socks5") or (parts.scheme == "socks5h"):
                 socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, parts.hostname, parts.port, resolveHostname, parts.username, parts.password)
                 socket.socket = cast(type[socket.socket], socks.socksocket)  # type: ignore[misc]
-        else:
-            # the following code provide backward compatibility for older qbt versions
-            # TODO: scheduled be removed with qbt >= 5.3
-            legacySocksURL = os.environ.get("sock_proxy")
-            if legacySocksURL is not None:
-                legacySocksURL = f"socks5h://{legacySocksURL.strip()}"
-                parts = urllib.parse.urlsplit(legacySocksURL)
-                socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, parts.hostname, parts.port, True, parts.username, parts.password)
-                socket.socket = cast(type[socket.socket], socks.socksocket)  # type: ignore[misc]
     else:
         socket.socket = _original_socket  # type: ignore[misc]
 
@@ -95,7 +88,9 @@ htmlentitydecode = html.unescape
 
 
 def retrieve_url(url: str, custom_headers: Mapping[str, str] = {}, request_data: Optional[Any] = None, ssl_context: Optional[ssl.SSLContext] = None, unescape_html_entities: bool = True) -> str:
-    """ Return the content of the url page as a string """
+    """
+    Return the content of the url page as a string
+    """
 
     request = urllib.request.Request(url, request_data, {**_headers, **custom_headers})
     try:
@@ -126,7 +121,9 @@ def retrieve_url(url: str, custom_headers: Mapping[str, str] = {}, request_data:
 
 
 def download_file(url: str, referer: Optional[str] = None, ssl_context: Optional[ssl.SSLContext] = None) -> str:
-    """ Download file at url and write it to a file, return the path to the file and the url """
+    """
+    Download file at url and write it to a file, return both the path to the file and the url
+    """
 
     # Download url
     request = urllib.request.Request(url, headers=_headers)

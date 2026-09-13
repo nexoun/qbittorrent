@@ -33,19 +33,25 @@ window.qBittorrent.Misc ??= (() => {
     const exports = () => {
         return {
             getHost: getHost,
+            isHttpUrl: isHttpUrl,
             createDebounceHandler: createDebounceHandler,
+            filterInPlace: filterInPlace,
             friendlyUnit: friendlyUnit,
             friendlyDuration: friendlyDuration,
             friendlyPercentage: friendlyPercentage,
             parseHtmlLinks: parseHtmlLinks,
             parseVersion: parseVersion,
+            compareVersions: compareVersions,
             escapeHtml: escapeHtml,
             naturalSortCollator: naturalSortCollator,
             safeTrim: safeTrim,
             toFixedPointString: toFixedPointString,
             containsAllTerms: containsAllTerms,
             sleep: sleep,
+            DateFormatOptions: DateFormatOptions,
             downloadFile: downloadFile,
+            downloadFileStream: downloadFileStream,
+            formatDate: formatDate,
             // variables
             FILTER_INPUT_DELAY: 400,
             MAX_ETA: 8640000
@@ -76,6 +82,22 @@ window.qBittorrent.Misc ??= (() => {
         }
     };
 
+    /**
+     * Whether the URL is safe to navigate to, i.e. it doesn't use a scheme such as `javascript:`
+     *
+     * @param {string} url a URL, possibly relative to the current document
+     * @returns {boolean}
+     */
+    const isHttpUrl = (url) => {
+        try {
+            const scheme = new URL(url, window.location).protocol;
+            return (scheme === "http:") || (scheme === "https:");
+        }
+        catch (error) {
+            return false;
+        }
+    };
+
     const createDebounceHandler = (delay, func) => {
         let timer = -1;
         return (...params) => {
@@ -86,6 +108,18 @@ window.qBittorrent.Misc ??= (() => {
                 timer = -1;
             }, delay);
         };
+    };
+
+    const filterInPlace = (array, predicate) => {
+        let j = 0;
+        for (let i = 0; i < array.length; ++i) {
+            if (predicate(array[i])) {
+                if (i > j)
+                    array[j] = array[i];
+                ++j;
+            }
+        }
+        array.splice(j, (array.length - j));
     };
 
     /*
@@ -178,12 +212,19 @@ window.qBittorrent.Misc ??= (() => {
         return text.replace(exp, "<a target='_blank' rel='noopener noreferrer' href='$1'>$1</a>");
     };
 
+    /**
+     * Parse a string into a Version Record.
+     * It is generally recommended to use `compareVersions()` instead.
+     *
+     * @param {string} versionString
+     * @returns {Record<string, any>}
+     */
     const parseVersion = (versionString) => {
         const failure = {
             valid: false
         };
 
-        if (typeof versionString !== "string")
+        if ((typeof versionString !== "string") || (versionString.length === 0))
             return failure;
 
         const tryToNumber = (str) => {
@@ -191,7 +232,7 @@ window.qBittorrent.Misc ??= (() => {
             return (Number.isNaN(num) ? str : num);
         };
 
-        const ver = versionString.split(".", 4).map(val => tryToNumber(val));
+        const ver = versionString.split(".", 4).map(tryToNumber);
         return {
             valid: true,
             major: ver[0],
@@ -199,6 +240,51 @@ window.qBittorrent.Misc ??= (() => {
             fix: ver[2],
             patch: ver[3]
         };
+    };
+
+    /**
+     * @param {string | Record<string, any>} left - A version string or the return type of `parseVersion()`
+     * @param {string | Record<string, any>} right - A version string or the return type of `parseVersion()`
+     * @returns {number} `< 0` if `left` is less than `right`. `=== 0` if equal. `> 0` if `left` is greater than `right`.
+     */
+    const compareVersions = (left, right) => {
+        if (typeof left === "string")
+            left = parseVersion(left);
+        if (typeof right === "string")
+            right = parseVersion(right);
+
+        if (!left.valid)
+            return right.valid ? 1 : 0;
+        if (!right.valid)
+            return -1;
+
+        const cmp = (left, right) => {
+            // possible types for `left` and `right`: undefined, number, string (where length === 1)
+
+            if (left === undefined)
+                left = 0;
+            if (right === undefined)
+                right = 0;
+
+            const isNumber = (val) => ((typeof val === "number") && !Number.isNaN(val));
+            return (isNumber(left) && isNumber(right))
+                ? (left - right)
+                : naturalSortCollator.compare(left, right);
+        };
+
+        const resultMajor = cmp(left.major, right.major);
+        if (resultMajor !== 0)
+            return resultMajor;
+
+        const resultMinor = cmp(left.minor, right.minor);
+        if (resultMinor !== 0)
+            return resultMinor;
+
+        const resultFix = cmp(left.fix, right.fix);
+        if (resultFix !== 0)
+            return resultFix;
+
+        return cmp(left.patch, right.patch);
     };
 
     const escapeHtml = (() => {
@@ -301,6 +387,149 @@ window.qBittorrent.Misc ??= (() => {
             alert(errorMessage);
         }
     };
+
+    const downloadFileStream = async (url) => {
+        const errorMessage = "QBT_TR(Unable to download file)QBT_TR[CONTEXT=HttpServer]";
+
+        try {
+            // Pre-flight HEAD request to check for errors before triggering download
+            // This avoids navigating to an error page on failure
+            const response = await fetch(url, {
+                method: "HEAD",
+                cache: "no-store"
+            });
+            if (!response.ok) {
+                alert(errorMessage);
+                return;
+            }
+
+            // Trigger native browser download
+            const link = document.createElement("a");
+            link.href = url;
+            link.click();
+            link.remove();
+        }
+        catch (error) {
+            alert(errorMessage);
+        }
+    };
+
+    /**
+     * @param {Date} date
+     * @param {string} format
+     * @returns {string}
+     */
+    const formatDate = (date, format = window.parent.qBittorrent.ClientData.get("date_format")) => {
+        if ((format === "default") || !Object.hasOwn(DateFormatOptions, format))
+            return date.toLocaleString();
+
+        const { locale, options } = DateFormatOptions[format];
+        const formatter = new Intl.DateTimeFormat(locale, options);
+        const formatted = formatter.format(date).replace(" at ", ", ");
+        return format.includes(".") ? formatted.replaceAll("/", ".") : formatted;
+    };
+
+    /**
+     * @type Record<string, {locale: string, options: {}}>
+     */
+    const DateFormatOptions = Object.freeze({
+        "MM/dd/yyyy, h:mm:ss AM/PM": {
+            locale: "en-US",
+            options: {
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "numeric",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: true
+            }
+        },
+        "MM/dd/yyyy, HH:mm:ss": {
+            locale: "en-US",
+            options: {
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: false
+            }
+        },
+        "dd/MM/yyyy, HH:mm:ss": {
+            locale: "en-GB",
+            options: {
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: false
+            }
+        },
+        "yyyy-MM-dd HH:mm:ss": {
+            locale: "sv-SE",
+            options: {
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: false
+            }
+        },
+        "yyyy/MM/dd HH:mm:ss": {
+            locale: "ja-JP",
+            options: {
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: false
+            }
+        },
+        "dd.MM.yyyy, HH:mm:ss": {
+            locale: "en-GB",
+            options: {
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: false
+            }
+        },
+        "MMM dd, yyyy, h:mm:ss AM/PM": {
+            locale: "en-US",
+            options: {
+                year: "numeric",
+                month: "short",
+                day: "2-digit",
+                hour: "numeric",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: true
+            }
+        },
+        "dd MMM yyyy, HH:mm:ss": {
+            locale: "en-GB",
+            options: {
+                year: "numeric",
+                month: "short",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: false
+            }
+        },
+    });
 
     return exports();
 })();

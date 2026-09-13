@@ -1,6 +1,6 @@
 /*
  * Bittorrent Client using Qt and libtorrent.
- * Copyright (C) 2022-2024  Vladimir Golovnev <glassez@yandex.ru>
+ * Copyright (C) 2022-2026  Vladimir Golovnev <glassez@yandex.ru>
  * Copyright (C) 2006  Christophe Dumez <chris@qbittorrent.org>
  *
  * This program is free software; you can redistribute it and/or
@@ -29,6 +29,7 @@
 
 #include "mainwindow.h"
 
+#include <QtProcessorDetection>
 #include <QtSystemDetection>
 
 #include <algorithm>
@@ -66,6 +67,7 @@
 #include "base/global.h"
 #include "base/net/downloadmanager.h"
 #include "base/path.h"
+#include "base/plugins/pluginsengine.h"
 #include "base/preferences.h"
 #include "base/rss/rss_folder.h"
 #include "base/rss/rss_session.h"
@@ -103,9 +105,14 @@
 #include "utils.h"
 #include "utils/keysequence.h"
 
+#ifdef ENABLE_PLUGINS
+#include "plugins/pluginsdialog.h"
+#endif
+
 #ifdef Q_OS_MACOS
 #include "macosdockbadge/badger.h"
 #include "macosstatusitem/statusitem.h"
+#include "macutilities.h"
 #endif
 #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
 #include "programupdater.h"
@@ -120,11 +127,15 @@ namespace
 
     const std::chrono::seconds PREVENT_SUSPEND_INTERVAL {60};
 
-#ifdef Q_OS_WIN
-    const QString PYTHON_INSTALLER_URL = u"https://www.python.org/ftp/python/3.13.0/python-3.13.0-amd64.exe"_s;
-    const QByteArray PYTHON_INSTALLER_MD5 = QByteArrayLiteral("f5e5d48ba86586d4bef67bcb3790d339");
-    const QByteArray PYTHON_INSTALLER_SHA3_512 = QByteArrayLiteral("28ed23b82451efa5ec87e5dd18d7dacb9bc4d0a3643047091e5a687439f7e03a1c6e60ec64ee1210a0acaf2e5012504ff342ff27e5db108db05407e62aeff2f1");
+#if defined(Q_OS_WIN)
+#if defined(Q_PROCESSOR_X86_64)
+    const QString PYTHON_INSTALLER_URL = u"https://www.python.org/ftp/python/3.14.5/python-3.14.5-amd64.exe"_s;
+    const QByteArray PYTHON_INSTALLER_SHA2_256 = QByteArrayLiteral("f9c09f5ed6f796fd1a8bc5ddfa41715a494b453c4781f0e35d5077cf9fa58f6d");
+#elif defined(Q_PROCESSOR_ARM_64)
+    const QString PYTHON_INSTALLER_URL = u"https://www.python.org/ftp/python/3.14.5/python-3.14.5-arm64.exe"_s;
+    const QByteArray PYTHON_INSTALLER_SHA2_256 = QByteArrayLiteral("f4a7df6ab4fa375cd7296127ff6b9a14fbd1313f51864ce020185deba10144fa");
 #endif
+#endif // Q_OS_WIN
 }
 
 MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, const QString &titleSuffix)
@@ -147,8 +158,10 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     Preferences *const pref = Preferences::instance();
     m_uiLocked = pref->isUILocked();
     m_displaySpeedInTitle = pref->speedInTitleBar();
+#ifdef Q_OS_MACOS
+    m_statusItem->setVisible(pref->isMacOSMenuBarIconEnabled());
+#else
     // Setting icons
-#ifndef Q_OS_MACOS
     setWindowIcon(UIThemeManager::instance()->getIcon(u"qbittorrent"_s));
 #endif // Q_OS_MACOS
 
@@ -182,8 +195,10 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     m_ui->actionResumeSession->setIcon(UIThemeManager::instance()->getIcon(u"torrent-start"_s, u"media-playback-start"_s));
     m_ui->menuAutoShutdownOnDownloadsCompletion->setIcon(UIThemeManager::instance()->getIcon(u"task-complete"_s, u"application-exit"_s));
     m_ui->actionManageCookies->setIcon(UIThemeManager::instance()->getIcon(u"browser-cookies"_s, u"preferences-web-browser-cookies"_s));
+    m_ui->actionManagePlugins->setIcon(UIThemeManager::instance()->getIcon(u"plugins"_s));
     m_ui->menuLog->setIcon(UIThemeManager::instance()->getIcon(u"help-contents"_s));
     m_ui->actionCheckForUpdates->setIcon(UIThemeManager::instance()->getIcon(u"view-refresh"_s));
+    m_ui->actionOpenDestinationFolder->setIcon(UIThemeManager::instance()->getIcon(u"directory"_s));
 
     m_ui->actionPauseSession->setVisible(!BitTorrent::Session::instance()->isPaused());
     m_ui->actionResumeSession->setVisible(BitTorrent::Session::instance()->isPaused());
@@ -216,29 +231,31 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     connect(m_tabs.data(), &QTabWidget::currentChanged, this, &MainWindow::tabChanged);
 
     m_splitter = new QSplitter(Qt::Horizontal, this);
-    // vSplitter->setChildrenCollapsible(false);
 
     auto *hSplitter = new QSplitter(Qt::Vertical, this);
     hSplitter->setChildrenCollapsible(false);
     hSplitter->setFrameShape(QFrame::NoFrame);
 
     // Torrent filter
+    auto *columnFilterSpacer = new QWidget;
+    columnFilterSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
     m_columnFilterEdit = new LineEdit;
+    m_columnFilterEdit->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_columnFilterEdit->setFixedWidth(200);
     m_columnFilterEdit->setPlaceholderText(tr("Filter torrents..."));
     m_columnFilterEdit->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    m_columnFilterEdit->setFixedWidth(200);
-    m_columnFilterEdit->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_columnFilterEdit, &QWidget::customContextMenuRequested, this, &MainWindow::showFilterContextMenu);
-    auto *columnFilterLabel = new QLabel(tr("Filter by:"));
+
     m_columnFilterComboBox = new QComboBox;
-    QHBoxLayout *columnFilterLayout = new QHBoxLayout(m_columnFilterWidget);
+
+    QHBoxLayout *columnFilterLayout = new QHBoxLayout;
     columnFilterLayout->setContentsMargins(0, 0, 0, 0);
-    auto *columnFilterSpacer = new QWidget(this);
-    columnFilterSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     columnFilterLayout->addWidget(columnFilterSpacer);
     columnFilterLayout->addWidget(m_columnFilterEdit);
-    columnFilterLayout->addWidget(columnFilterLabel, 0);
+    columnFilterLayout->addWidget(new QLabel(tr("Filter by:")), 0);
     columnFilterLayout->addWidget(m_columnFilterComboBox, 0);
+
     m_columnFilterWidget = new QWidget(this);
     m_columnFilterWidget->setLayout(columnFilterLayout);
     m_columnFilterAction = m_ui->toolBar->insertWidget(m_ui->actionLock, m_columnFilterWidget);
@@ -261,14 +278,18 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
 #endif
         tr("Transfers"));
     // Filter types
-    const QList<TransferListModel::Column> filterTypes = {TransferListModel::Column::TR_NAME, TransferListModel::Column::TR_SAVE_PATH};
+    const QList<TransferListModel::Column> filterTypes = {
+        TransferListModel::Column::TR_NAME
+        , TransferListModel::Column::TR_SAVE_PATH
+        , TransferListModel::Column::TR_INFOHASH_V1
+        , TransferListModel::Column::TR_INFOHASH_V2};
     for (const TransferListModel::Column type : filterTypes)
     {
         const QString typeName = m_transferListWidget->getSourceModel()->headerData(type, Qt::Horizontal, Qt::DisplayRole).value<QString>();
         m_columnFilterComboBox->addItem(typeName, type);
     }
     connect(m_columnFilterComboBox, &QComboBox::currentIndexChanged, this, &MainWindow::applyTransferListFilter);
-    connect(m_columnFilterEdit, &LineEdit::textChanged, this, &MainWindow::applyTransferListFilter);
+    connect(m_columnFilterEdit, &LineEdit::textUpdated, this, &MainWindow::applyTransferListFilter);
     connect(hSplitter, &QSplitter::splitterMoved, this, &MainWindow::saveSettings);
     connect(m_splitter, &QSplitter::splitterMoved, this, &MainWindow::saveSplitterSettings);
 
@@ -287,24 +308,19 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     {
         if (action->isSeparator())
         {
-            QWidget *spacer = new QWidget(this);
-            spacer->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-            spacer->setMinimumWidth(16);
-            m_ui->toolBar->insertWidget(action, spacer);
+            auto *line = new QWidget(this);
+            line->setAutoFillBackground(true);
+            line->setFixedWidth(1);
+
+            QPalette pal = line->palette();
+            pal.setColor(QPalette::Window, palette().color(QPalette::Mid));
+            line->setPalette(pal);
+
+            QAction *widgetAction = m_ui->toolBar->insertWidget(action, line);
             m_ui->toolBar->removeAction(action);
+            if (action == m_queueSeparator)
+                m_queueSeparator = widgetAction;
         }
-    }
-    {
-        QWidget *spacer = new QWidget(this);
-        spacer->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        spacer->setMinimumWidth(8);
-        m_ui->toolBar->insertWidget(m_ui->actionDownloadFromURL, spacer);
-    }
-    {
-        QWidget *spacer = new QWidget(this);
-        spacer->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        spacer->setMinimumWidth(8);
-        m_ui->toolBar->addWidget(spacer);
     }
 #endif // Q_OS_MACOS
 
@@ -313,6 +329,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     connect(m_ui->actionStop, &QAction::triggered, m_transferListWidget, &TransferListWidget::stopSelectedTorrents);
     connect(m_ui->actionPauseSession, &QAction::triggered, m_transferListWidget, &TransferListWidget::pauseSession);
     connect(m_ui->actionResumeSession, &QAction::triggered, m_transferListWidget, &TransferListWidget::resumeSession);
+    connect(m_ui->actionOpenDestinationFolder, &QAction::triggered, m_transferListWidget, &TransferListWidget::openSelectedTorrentsFolder);
     connect(m_ui->actionDelete, &QAction::triggered, m_transferListWidget, &TransferListWidget::softDeleteSelectedTorrents);
     connect(m_ui->actionTopQueuePos, &QAction::triggered, m_transferListWidget, &TransferListWidget::topQueuePosSelectedTorrents);
     connect(m_ui->actionIncreaseQueuePos, &QAction::triggered, m_transferListWidget, &TransferListWidget::increaseQueuePosSelectedTorrents);
@@ -338,7 +355,20 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     m_ui->actionCheckForUpdates->setMenuRole(QAction::ApplicationSpecificRole);
     m_ui->actionOptions->setMenuRole(QAction::PreferencesRole);
 
+#ifdef Q_OS_MACOS
+    // Set up native macOS Window menu
+    auto *windowMenu = new QMenu(tr("&Window"), this);
+    m_ui->menubar->insertMenu(m_ui->menuHelp->menuAction(), windowMenu);
+    MacUtils::setupWindowMenu(windowMenu);
+#endif
+
     connect(m_ui->actionManageCookies, &QAction::triggered, this, &MainWindow::manageCookies);
+
+#ifdef ENABLE_PLUGINS
+    connect(m_ui->actionManagePlugins, &QAction::triggered, this, &MainWindow::managePlugins);
+#else
+    m_ui->menuPlugins->hide();
+#endif
 
     // Initialise system sleep inhibition timer
     m_preventTimer->setSingleShot(true);
@@ -388,10 +418,16 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     autoShutdownGroup->addAction(m_ui->actionAutoShutdown);
     autoShutdownGroup->addAction(m_ui->actionAutoSuspend);
     autoShutdownGroup->addAction(m_ui->actionAutoHibernate);
+    autoShutdownGroup->addAction(m_ui->actionAutoReboot);
 #if (!defined(Q_OS_UNIX) || defined(Q_OS_MACOS)) || defined(QBT_USES_DBUS)
     m_ui->actionAutoShutdown->setChecked(pref->shutdownWhenDownloadsComplete());
+    m_ui->actionAutoReboot->setChecked(pref->rebootWhenDownloadsComplete());
     m_ui->actionAutoSuspend->setChecked(pref->suspendWhenDownloadsComplete());
     m_ui->actionAutoHibernate->setChecked(pref->hibernateWhenDownloadsComplete());
+#ifdef Q_OS_MACOS
+    // macOS doesn't support Hibernate via Apple Events API
+    m_ui->actionAutoHibernate->setDisabled(true);
+#endif
 #else
     m_ui->actionAutoShutdown->setDisabled(true);
     m_ui->actionAutoSuspend->setDisabled(true);
@@ -486,7 +522,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
         m_transferListWidget->applyStatusFilter(pref->getTransSelFilter());
         m_transferListWidget->applyCategoryFilter(QString());
         m_transferListWidget->applyTagFilter(std::nullopt);
-        m_transferListWidget->applyTrackerFilterAll();
+        m_transferListWidget->applyTrackerFilter({});
     }
 
     // Start watching the executable for updates
@@ -502,6 +538,10 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     connect(m_transferListWidget->getSourceModel(), &QAbstractItemModel::rowsRemoved, this, &MainWindow::updateNbTorrents);
 
     connect(pref, &Preferences::changed, this, &MainWindow::optionsSaved);
+
+#ifdef ENABLE_PLUGINS
+    populatePluginsMenu();
+#endif
 
     qDebug("GUI Built");
 }
@@ -1355,11 +1395,6 @@ void MainWindow::showFiltersSidebar(const bool show)
     if (show && !m_transferListFiltersWidget)
     {
         m_transferListFiltersWidget = new TransferListFiltersWidget(m_splitter, m_transferListWidget, isDownloadTrackerFavicon());
-        connect(BitTorrent::Session::instance(), &BitTorrent::Session::trackersAdded, m_transferListFiltersWidget, &TransferListFiltersWidget::addTrackers);
-        connect(BitTorrent::Session::instance(), &BitTorrent::Session::trackersRemoved, m_transferListFiltersWidget, &TransferListFiltersWidget::removeTrackers);
-        connect(BitTorrent::Session::instance(), &BitTorrent::Session::trackersChanged, m_transferListFiltersWidget, &TransferListFiltersWidget::refreshTrackers);
-        connect(BitTorrent::Session::instance(), &BitTorrent::Session::trackerEntryStatusesUpdated, m_transferListFiltersWidget, &TransferListFiltersWidget::trackerEntryStatusesUpdated);
-
         m_splitter->insertWidget(0, m_transferListFiltersWidget);
         m_splitter->setCollapsible(0, true);
         // From https://doc.qt.io/qt-5/qsplitter.html#setSizes:
@@ -1410,9 +1445,7 @@ void MainWindow::loadPreferences()
             m_ui->actionIncreaseQueuePos->setVisible(true);
             m_ui->actionTopQueuePos->setVisible(true);
             m_ui->actionBottomQueuePos->setVisible(true);
-#ifndef Q_OS_MACOS
             m_queueSeparator->setVisible(true);
-#endif
             m_queueSeparatorMenu->setVisible(true);
         }
     }
@@ -1425,9 +1458,7 @@ void MainWindow::loadPreferences()
             m_ui->actionIncreaseQueuePos->setVisible(false);
             m_ui->actionTopQueuePos->setVisible(false);
             m_ui->actionBottomQueuePos->setVisible(false);
-#ifndef Q_OS_MACOS
             m_queueSeparator->setVisible(false);
-#endif
             m_queueSeparatorMenu->setVisible(false);
         }
     }
@@ -1454,6 +1485,13 @@ void MainWindow::loadPreferences()
     }
 #endif
 
+#ifdef Q_OS_MACOS
+    // Clear dock badge immediately if speed display is disabled
+    if (!pref->isSpeedInDockEnabled())
+        m_badger->updateSpeed(0, 0);
+    m_statusItem->setVisible(pref->isMacOSMenuBarIconEnabled());
+#endif
+
     qDebug("GUI settings loaded");
 }
 
@@ -1466,8 +1504,10 @@ void MainWindow::loadSessionStats()
 
     // update global information
 #ifdef Q_OS_MACOS
-    m_badger->updateSpeed(status.payloadDownloadRate, status.payloadUploadRate);
-    m_statusItem->updateSpeed(status.payloadDownloadRate, status.payloadUploadRate);
+    if (Preferences::instance()->isSpeedInDockEnabled())
+        m_badger->updateSpeed(status.payloadDownloadRate, status.payloadUploadRate);
+    if (Preferences::instance()->isMacOSMenuBarIconEnabled())
+        m_statusItem->updateSpeed(status.payloadDownloadRate, status.payloadUploadRate);
 #else
     refreshTrayIconTooltip();
 #endif  // Q_OS_MACOS
@@ -1790,28 +1830,29 @@ void MainWindow::on_actionCriticalMessages_triggered(const bool checked)
     setExecutionLogMsgTypes(flags);
 }
 
-void MainWindow::on_actionAutoExit_toggled(bool enabled)
+void MainWindow::on_actionAutoExit_toggled(const bool enabled)
 {
-    qDebug() << Q_FUNC_INFO << enabled;
     Preferences::instance()->setShutdownqBTWhenDownloadsComplete(enabled);
 }
 
-void MainWindow::on_actionAutoSuspend_toggled(bool enabled)
+void MainWindow::on_actionAutoSuspend_toggled(const bool enabled)
 {
-    qDebug() << Q_FUNC_INFO << enabled;
     Preferences::instance()->setSuspendWhenDownloadsComplete(enabled);
 }
 
-void MainWindow::on_actionAutoHibernate_toggled(bool enabled)
+void MainWindow::on_actionAutoHibernate_toggled(const bool enabled)
 {
-    qDebug() << Q_FUNC_INFO << enabled;
     Preferences::instance()->setHibernateWhenDownloadsComplete(enabled);
 }
 
-void MainWindow::on_actionAutoShutdown_toggled(bool enabled)
+void MainWindow::on_actionAutoShutdown_toggled(const bool enabled)
 {
-    qDebug() << Q_FUNC_INFO << enabled;
     Preferences::instance()->setShutdownWhenDownloadsComplete(enabled);
+}
+
+void MainWindow::on_actionAutoReboot_toggled(const bool enabled)
+{
+    Preferences::instance()->setRebootWhenDownloadsComplete(enabled);
 }
 
 void MainWindow::updatePowerManagementState() const
@@ -1916,9 +1957,6 @@ void MainWindow::installPython()
 bool MainWindow::verifyPythonInstaller(const Path &installerPath) const
 {
     // Verify installer hash
-    // Python.org only provides MD5 hash but MD5 is already broken and doesn't guarantee file is not tampered.
-    // Therefore, MD5 is only included to prove that the hash is still the same with upstream and we rely on
-    // SHA3-512 for the main check.
 
     QFile file {installerPath.data()};
     if (!file.open(QIODevice::ReadOnly))
@@ -1927,24 +1965,12 @@ bool MainWindow::verifyPythonInstaller(const Path &installerPath) const
         return false;
     }
 
-    QCryptographicHash md5Hash {QCryptographicHash::Md5};
-    md5Hash.addData(&file);
-    if (const QByteArray hashHex = md5Hash.result().toHex(); hashHex != PYTHON_INSTALLER_MD5)
+    QCryptographicHash sha2Hash {QCryptographicHash::Sha256};
+    sha2Hash.addData(&file);
+    if (const QByteArray hashHex = sha2Hash.result().toHex(); hashHex != PYTHON_INSTALLER_SHA2_256)
     {
-        LogMsg((tr("Failed MD5 hash check for Python installer. File: \"%1\". Result hash: \"%2\". Expected hash: \"%3\".")
-                .arg(installerPath.toString(), QString::fromLatin1(hashHex), QString::fromLatin1(PYTHON_INSTALLER_MD5)))
-            , Log::WARNING);
-        return false;
-    }
-
-    file.seek(0);
-
-    QCryptographicHash sha3Hash {QCryptographicHash::Sha3_512};
-    sha3Hash.addData(&file);
-    if (const QByteArray hashHex = sha3Hash.result().toHex(); hashHex != PYTHON_INSTALLER_SHA3_512)
-    {
-        LogMsg((tr("Failed SHA3-512 hash check for Python installer. File: \"%1\". Result hash: \"%2\". Expected hash: \"%3\".")
-                .arg(installerPath.toString(), QString::fromLatin1(hashHex), QString::fromLatin1(PYTHON_INSTALLER_SHA3_512)))
+        LogMsg((tr("Failed SHA2-256 hash check for Python installer. File: \"%1\". Result hash: \"%2\". Expected hash: \"%3\".")
+                .arg(installerPath.toString(), QString::fromLatin1(hashHex), QString::fromLatin1(PYTHON_INSTALLER_SHA2_256)))
             , Log::WARNING);
         return false;
     }
@@ -1993,7 +2019,7 @@ void MainWindow::pythonDownloadFinished(const Net::DownloadResult &result)
             LogMsg(tr("Python installation success."), Log::INFO);
 
             // Delete installer
-            Utils::Fs::removeFile(exePath);
+            std::ignore = Utils::Fs::removeFile(exePath);
 
             // Reload search engine
             if (Utils::ForeignApps::pythonInfo().isSupportedVersion())
@@ -2014,3 +2040,89 @@ void MainWindow::pythonDownloadFinished(const Net::DownloadResult &result)
     installer->start(exePath.toString(), {u"/passive"_s});
 }
 #endif // Q_OS_WIN
+
+#ifdef ENABLE_PLUGINS
+void MainWindow::populatePluginsMenu()
+{
+    auto *pluginsEngine = PluginsEngine::instance();
+
+    for (const PluginInfo &pluginInfo : asConst(pluginsEngine->allPlugins()))
+    {
+        if (pluginInfo.invocable && pluginInfo.enabled)
+            addPluginsMenuItem(pluginInfo);
+    }
+
+    connect(pluginsEngine, &PluginsEngine::pluginInstalled, this
+            , [this](const Path &, const PluginInfo &pluginInfo)
+    {
+        if (pluginInfo.invocable && pluginInfo.enabled)
+            addPluginsMenuItem(pluginInfo);
+    });
+
+    connect(pluginsEngine, &PluginsEngine::pluginUninstalled, this
+            , [this](const QString &pluginID)
+    {
+        removePluginsMenuItem(pluginID);
+    });
+
+    connect(pluginsEngine, &PluginsEngine::pluginUpdated, this
+            , [this](const Path &, const PluginInfo &oldPluginInfo, const PluginInfo &newPluginInfo)
+    {
+        if (newPluginInfo.enabled && newPluginInfo.invocable)
+        {
+            if (QAction *action = m_pluginActions.value(oldPluginInfo.id))
+                action->setText(newPluginInfo.name);
+            else
+                addPluginsMenuItem(newPluginInfo);
+        }
+        else
+        {
+            removePluginsMenuItem(oldPluginInfo.id);
+        }
+    });
+
+    connect(pluginsEngine, &PluginsEngine::pluginEnabledChanged, this
+            , [this, pluginsEngine](const QString &pluginID, bool isEnabled)
+    {
+        if (isEnabled)
+        {
+            if (const auto pluginInfo = pluginsEngine->pluginInfo(pluginID);
+                    pluginInfo && pluginInfo->invocable)
+            {
+                addPluginsMenuItem(*pluginInfo);
+            }
+        }
+        else
+        {
+            removePluginsMenuItem(pluginID);
+        }
+    });
+}
+
+void MainWindow::addPluginsMenuItem(const PluginInfo &pluginInfo)
+{
+    auto *pluginsEngine = PluginsEngine::instance();
+    auto *action = m_ui->menuPlugins->addAction(pluginInfo.name, this
+            , [pluginsEngine, pluginID = pluginInfo.id]
+    {
+        pluginsEngine->invokePlugin(pluginID);
+    });
+    m_pluginActions.insert(pluginInfo.id, action);
+}
+
+void MainWindow::removePluginsMenuItem(const QString &pluginID)
+{
+    if (QAction *action = m_pluginActions.take(pluginID))
+    {
+        m_ui->menuPlugins->removeAction(action);
+        delete action;
+    }
+}
+
+void MainWindow::managePlugins()
+{
+    auto *pluginsDialog = new PluginsDialog(PluginsEngine::instance(), this);
+    pluginsDialog->setAttribute(Qt::WA_DeleteOnClose);
+    pluginsDialog->open();
+}
+#endif

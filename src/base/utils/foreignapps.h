@@ -38,6 +38,7 @@
 namespace Utils::ForeignApps
 {
     inline const QString PYTHON_ISOLATE_MODE_FLAG = u"-I"_s;
+    inline const QString PYTHON_UTF8_MODE_FLAG = u"-Xutf8=1"_s;
 
     struct PythonInfo
     {
@@ -49,7 +50,7 @@ namespace Utils::ForeignApps
         Path executablePath;
         Version version;
 
-        inline static const Version MINIMUM_SUPPORTED_VERSION {3, 9, 0};
+        inline static const Version MINIMUM_SUPPORTED_VERSION {3, 13, 0};
     };
 
     PythonInfo pythonInfo();

@@ -107,35 +107,29 @@
 
     <div id="logContentView">
         <div id="logMessageView">
-            <div id="logMessageTableFixedHeaderDiv" class="dynamicTableFixedHeaderDiv">
-                <table class="dynamicTable unselectable" style="position:relative;">
-                    <thead>
-                        <tr class="dynamicTableHeader"></tr>
-                    </thead>
-                </table>
-            </div>
             <div id="logMessageTableDiv" class="dynamicTableDiv">
+                <div id="logMessageTableFixedHeaderDiv" class="dynamicTableFixedHeaderDiv">
+                    <table class="dynamicTable unselectable" style="position:relative;">
+                        <thead>
+                            <tr class="dynamicTableHeader"></tr>
+                        </thead>
+                    </table>
+                </div>
                 <table class="dynamicTable unselectable">
-                    <thead>
-                        <tr class="dynamicTableHeader"></tr>
-                    </thead>
                     <tbody></tbody>
                 </table>
             </div>
         </div>
         <div id="logPeerView" class="invisible">
-            <div id="logPeerTableFixedHeaderDiv" class="dynamicTableFixedHeaderDiv">
-                <table class="dynamicTable unselectable" style="position:relative;">
-                    <thead>
-                        <tr class="dynamicTableHeader"></tr>
-                    </thead>
-                </table>
-            </div>
             <div id="logPeerTableDiv" class="dynamicTableDiv">
+                <div id="logPeerTableFixedHeaderDiv" class="dynamicTableFixedHeaderDiv">
+                    <table class="dynamicTable unselectable" style="position:relative;">
+                        <thead>
+                            <tr class="dynamicTableHeader"></tr>
+                        </thead>
+                    </table>
+                </div>
                 <table class="dynamicTable unselectable">
-                    <thead>
-                        <tr class="dynamicTableHeader"></tr>
-                    </thead>
                     <tbody></tbody>
                 </table>
             </div>
@@ -182,12 +176,10 @@
             }
         };
 
-        const localPreferences = new window.qBittorrent.LocalPreferences.LocalPreferences();
-
         let logFilterTimer = -1;
         let inputtedFilterText = "";
         let selectBox;
-        let selectedLogLevels = JSON.parse(localPreferences.get("qbt_selected_log_levels")) || ["1", "2", "4", "8"];
+        let selectedLogLevels = window.qBittorrent.ClientData.get("qbt_selected_log_levels") ?? ["1", "2", "4", "8"];
 
         const init = () => {
             for (const option of document.getElementById("logLevelSelect").options)
@@ -224,8 +216,8 @@
                 }
             });
 
-            tableInfo["main"].instance.setup("logMessageTableDiv", "logMessageTableFixedHeaderDiv", logTableContextMenu, true);
-            tableInfo["peer"].instance.setup("logPeerTableDiv", "logPeerTableFixedHeaderDiv", logTableContextMenu, true);
+            tableInfo["main"].instance.setup("logMessageTableDiv", "logMessageTableFixedHeaderDiv", logTableContextMenu);
+            tableInfo["peer"].instance.setup("logPeerTableDiv", "logPeerTableFixedHeaderDiv", logTableContextMenu);
 
             MUI.Panels.instances.LogPanel.contentEl.style.height = "100%";
 
@@ -277,7 +269,8 @@
             if (selectedLogLevels !== value) {
                 tableInfo[currentSelectedTab].last_id = -1;
                 selectedLogLevels = value;
-                localPreferences.set("qbt_selected_log_levels", JSON.stringify(selectedLogLevels));
+                // don't await this
+                window.qBittorrent.ClientData.set({ qbt_selected_log_levels: selectedLogLevels }).catch(console.error);
                 logFilterChanged();
             }
         };
@@ -328,7 +321,7 @@
             updateLabelCount();
         };
 
-        const updateLabelCount = (curTab) => {
+        const updateLabelCount = (curTab = undefined) => {
             if (curTab === undefined)
                 curTab = currentSelectedTab;
 
