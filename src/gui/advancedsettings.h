@@ -86,6 +86,7 @@ private:
               m_comboBoxSeedChokingAlgorithm, m_comboBoxResumeDataStorage, m_comboBoxTorrentContentRemoveOption;
     QLineEdit m_lineEditAppInstanceName, m_lineEditAnnounceIP, m_lineEditDHTBootstrapNodes, m_lineEditWebTorrentSTUNServer;
     FileSystemPathLineEdit m_pythonExecutablePath;
+    QLineEdit m_lineEditUserAgent, m_lineEditPeerFingerprint;
 
 #ifndef QBT_USES_LIBTORRENT2
     QSpinBox m_spinBoxCache, m_spinBoxCacheTTL;

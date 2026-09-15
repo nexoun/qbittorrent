@@ -525,6 +525,10 @@ void AppController::preferencesAction()
     data[u"dht_bootstrap_nodes"_s] = session->getDHTBootstrapNodes();
     // STUN server for WebTorrent NAT traversal
     data[u"webtorrent_stun_server"_s] = session->getWebTorrentSTUNServer();
+    // User agent
+    data[u"user_agent"_s] = session->getUserAgent();
+    // Peer ID
+    data[u"peer_fingerprint"_s] = session->getPeerFingerprint();
 
     setResult(data);
 }
@@ -1238,6 +1242,12 @@ void AppController::setPreferencesAction()
     // STUN server for WebTorrent NAT traversal
     if (hasKey(u"webtorrent_stun_server"_s))
         session->setWebTorrentSTUNServer(it.value().toString());
+    // User agent
+    if (hasKey(u"user_agent"_s))
+        session->setUserAgent(it.value().toString());
+    // Peer ID
+    if (hasKey(u"peer_fingerprint"_s))
+        session->setPeerFingerprint(it.value().toString());
 
     // Save preferences
     pref->apply();

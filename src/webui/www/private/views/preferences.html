@@ -1877,6 +1877,22 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
                         <input type="text" id="webTorrentSTUNServer" style="width: 15em;">
                     </td>
                 </tr>
+                <tr>
+                    <td>
+                        <label for="userAgent">QBT_TR(User agent (requires restart):)QBT_TR[CONTEXT=OptionsDialog]&nbsp;<a href="https://www.libtorrent.org/reference-Settings.html#user_agent" target="_blank">(?)</a></label>
+                    </td>
+                    <td>
+                        <input type="text" id="userAgent" placeholder="QBT_TR(Resets to default if empty)QBT_TR[CONTEXT=OptionsDialog]" style="width: 15em;">
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        <label for="peerFingerprint">QBT_TR(Peer ID (requires restart):)QBT_TR[CONTEXT=OptionsDialog]&nbsp;<a href="https://www.libtorrent.org/reference-Settings.html#peer_fingerprint" target="_blank">(?)</a></label>
+                    </td>
+                    <td>
+                        <input type="text" id="peerFingerprint" placeholder="QBT_TR(Leave empty to use default peer ID. Can be up to 20 bytes. If longer, it will be truncated.)QBT_TR[CONTEXT=OptionsDialog]" style="width: 15em;">
+                    </td>
+                </tr>
                 <tr id="rowI2pInboundQuantity">
                     <td>
                         <label for="i2pInboundQuantity">QBT_TR(I2P inbound quantity:)QBT_TR[CONTEXT=OptionsDialog]&nbsp;<a href="https://www.libtorrent.org/reference-Settings.html#i2p_inbound_quantity" target="_blank">(?)</a></label>
@@ -2873,6 +2889,8 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
                     document.getElementById("maxOutstandingBlockRequests").value = pref.max_outstanding_block_requests;
                     document.getElementById("dhtBootstrapNodes").value = pref.dht_bootstrap_nodes;
                     document.getElementById("webTorrentSTUNServer").value = pref.webtorrent_stun_server;
+                    document.getElementById("userAgent").value = pref.user_agent;
+                    document.getElementById("peerFingerprint").value = pref.peer_fingerprint;
                     document.getElementById("i2pInboundQuantity").value = pref.i2p_inbound_quantity;
                     document.getElementById("i2pOutboundQuantity").value = pref.i2p_outbound_quantity;
                     document.getElementById("i2pInboundLength").value = pref.i2p_inbound_length;
@@ -3416,6 +3434,8 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
             settings["max_outstanding_block_requests"] = Number(document.getElementById("maxOutstandingBlockRequests").value);
             settings["dht_bootstrap_nodes"] = document.getElementById("dhtBootstrapNodes").value;
             settings["webtorrent_stun_server"] = document.getElementById("webTorrentSTUNServer").value;
+            settings["user_agent"] = document.getElementById("userAgent").value;
+            settings["peer_fingerprint"] = document.getElementById("peerFingerprint").value;
             settings["i2p_inbound_quantity"] = Number(document.getElementById("i2pInboundQuantity").value);
             settings["i2p_outbound_quantity"] = Number(document.getElementById("i2pOutboundQuantity").value);
             settings["i2p_inbound_length"] = Number(document.getElementById("i2pInboundLength").value);

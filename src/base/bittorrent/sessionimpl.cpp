@@ -484,6 +484,8 @@ SessionImpl::SessionImpl(QObject *parent)
     : Session(parent)
     , m_DHTBootstrapNodes(BITTORRENT_SESSION_KEY(u"DHTBootstrapNodes"_s), DEFAULT_DHT_BOOTSTRAP_NODES)
     , m_webTorrentSTUNServer(BITTORRENT_SESSION_KEY(u"WebTorrentSTUNServer"_s), u"stun.l.google.com:19302"_s)
+    , m_userAgent(BITTORRENT_SESSION_KEY(u"UserAgent"_s))
+    , m_peerFingerprint(BITTORRENT_SESSION_KEY(u"PeerFingerprint"_s))
     , m_isDHTEnabled(BITTORRENT_SESSION_KEY(u"DHTEnabled"_s), true)
     , m_isLSDEnabled(BITTORRENT_SESSION_KEY(u"LSDEnabled"_s), true)
     , m_isPeXEnabled(BITTORRENT_SESSION_KEY(u"PeXEnabled"_s), true)
@@ -837,6 +839,33 @@ void SessionImpl::setWebTorrentSTUNServer(const QString &server)
 
     m_webTorrentSTUNServer = server;
     configureDeferred();
+}
+
+QString SessionImpl::getUserAgent() const
+{
+    const QString customUserAgent = m_userAgent;
+    return !customUserAgent.isEmpty() ? customUserAgent : USER_AGENT;
+}
+
+void SessionImpl::setUserAgent(const QString &value)
+{
+    if (value == m_userAgent)
+        return;
+
+    m_userAgent = value;
+}
+
+QString SessionImpl::getPeerFingerprint() const
+{
+    return m_peerFingerprint;
+}
+
+void SessionImpl::setPeerFingerprint(const QString &value)
+{
+    if (value == m_peerFingerprint)
+        return;
+
+    m_peerFingerprint = value;
 }
 
 bool SessionImpl::isDHTEnabled() const
@@ -1802,11 +1831,24 @@ void SessionImpl::initializeNativeSession()
 {
     lt::settings_pack pack = loadLTSettings();
 
-    const std::string peerId = lt::generate_fingerprint(PEER_ID, QBT_VERSION_MAJOR, QBT_VERSION_MINOR, QBT_VERSION_BUGFIX, QBT_VERSION_BUILD);
+    // Custom or default peer ID
+    std::string peerId;
+    const QString customPeerFingerprint = m_peerFingerprint.get().trimmed();
+    if (!customPeerFingerprint.isEmpty())
+    {
+        peerId = customPeerFingerprint.toStdString();
+    }
+    else
+    {
+        peerId = lt::generate_fingerprint(PEER_ID, QBT_VERSION_MAJOR, QBT_VERSION_MINOR, QBT_VERSION_BUGFIX, QBT_VERSION_BUILD);
+    }
     pack.set_str(lt::settings_pack::peer_fingerprint, peerId);
 
     pack.set_bool(lt::settings_pack::listen_system_port_fallback, false);
-    pack.set_str(lt::settings_pack::user_agent, USER_AGENT.toStdString());
+    // Custom or default user agent
+    const QString customUserAgent = m_userAgent.get().trimmed();
+    const QString userAgent = !customUserAgent.isEmpty() ? customUserAgent : USER_AGENT;
+    pack.set_str(lt::settings_pack::user_agent, userAgent.toStdString());
     pack.set_bool(lt::settings_pack::use_dht_as_fallback, false);
     // Speed up exit
     pack.set_int(lt::settings_pack::auto_scrape_interval, 1200); // 20 minutes
@@ -1858,7 +1900,7 @@ void SessionImpl::initializeNativeSession()
 #endif
 
     LogMsg(tr("Peer ID: \"%1\"").arg(QString::fromStdString(peerId)), Log::INFO);
-    LogMsg(tr("HTTP User-Agent: \"%1\"").arg(USER_AGENT), Log::INFO);
+    LogMsg(tr("HTTP User-Agent: \"%1\"").arg(userAgent), Log::INFO);
     LogMsg(tr("Distributed Hash Table (DHT) support: %1").arg(isDHTEnabled() ? tr("ON") : tr("OFF")), Log::INFO);
     LogMsg(tr("Local Peer Discovery support: %1").arg(isLSDEnabled() ? tr("ON") : tr("OFF")), Log::INFO);
     LogMsg(tr("Peer Exchange (PeX) support: %1").arg(isPeXEnabled() ? tr("ON") : tr("OFF")), Log::INFO);
